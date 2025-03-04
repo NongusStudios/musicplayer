@@ -20,14 +20,20 @@ func main() {
 }
 
 func run(win *app.Window) error {
-	a := initApp()
+	a, err := initApp()
+	if err != nil {
+		return err
+	}
 
 	for {
 		switch e := win.Event().(type) {
 		case app.DestroyEvent:
 			return e.Err
 		case app.FrameEvent:
-			a.draw(e)
+			gtx := app.NewContext(&a.ops, e)
+			a.Update(gtx)
+			a.Draw(gtx)
+			e.Frame(&a.ops)
 		}
 	}
 }
