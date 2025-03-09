@@ -20,7 +20,7 @@ func main() {
 }
 
 func run(win *app.Window) error {
-	a, err := initApp()
+	a, err := InitApp()
 	if err != nil {
 		return err
 	}

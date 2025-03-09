@@ -3,34 +3,40 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 )
 
-type MediaFile struct {
-	name string
-	path string
-}
+type MediaDirectory map[string][]string
 
-func ReadFilesInDirectory(dir string) ([]MediaFile, error) {
-	entries, err := os.ReadDir(dir)
+var SupportedFileExtensions = []string{".mp3"}
 
+func ReadFilesInDirectory(path string) (MediaDirectory, error) {
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
 
-	files := make([]MediaFile, 0, len(entries))
+	directory := make(MediaDirectory)
 
 	for _, entry := range entries {
+		fullFileName := fmt.Sprintf("%s/%s", path, entry.Name())
 		if entry.IsDir() {
-			f, e := ReadFilesInDirectory(fmt.Sprintf("%s/%s", dir, entry.Name()))
+			subDirectory, e := ReadFilesInDirectory(fullFileName)
 			if e != nil {
 				return nil, e
 			}
 
-			files = append(files, f...)
+			for subPath, files := range subDirectory {
+				directory[subPath] = append(directory[subPath], files...)
+			}
+
 			continue
 		}
-		files = append(files, MediaFile{name: entry.Name(), path: dir})
+		if slices.Contains(SupportedFileExtensions, filepath.Ext(fullFileName)) {
+			directory[path] = append(directory[path], entry.Name())
+		}
 	}
 
-	return files, nil
+	return directory, nil
 }
