@@ -20,10 +20,10 @@ type Settings struct {
 }
 
 type App struct {
-	theme            *material.Theme
-	ops              op.Ops
-	settings         Settings
-	mediaDirectories []MediaDirectory
+	theme    *material.Theme
+	ops      op.Ops
+	settings Settings
+	library  Library
 
 	// Widgets
 	listWidget widget.List
@@ -42,23 +42,19 @@ func InitApp() (App, error) {
 		mediaDirectories: []string{"music"},
 	}
 
-	for _, path := range a.settings.mediaDirectories {
-		dir, err := ReadFilesInDirectory(path)
-		if err != nil {
-			return a, err
-		}
-
-		a.mediaDirectories = append(a.mediaDirectories, dir)
+	// Read media directories
+	var err error
+	a.library, err = GetLibraryFromMediaDirectories(a.settings.mediaDirectories)
+	if err != nil {
+		return a, err
 	}
 
 	listEntries = make([]string, 0, 128)
 
-	for _, directory := range a.mediaDirectories {
-		for path, files := range directory {
-			listEntries = append(listEntries, fmt.Sprintf("%s:", path))
-			for i, file := range files {
-				listEntries = append(listEntries, fmt.Sprintf("    %d - %s", i, file))
-			}
+	for _, album := range a.library.albums {
+		listEntries = append(listEntries, fmt.Sprintf("%s - %s - %s", album.name, album.artist, album.date))
+		for _, song := range album.songs {
+			listEntries = append(listEntries, fmt.Sprintf("    %d - %s - %s", song.trackNumber, song.title, song.length.String()))
 		}
 	}
 
@@ -75,7 +71,6 @@ func (a *App) Update(gtx C) {
 }
 
 func (a *App) Draw(gtx C) {
-
 	layout.Flex{
 		Axis:    layout.Vertical,
 		Spacing: layout.SpaceEnd,
