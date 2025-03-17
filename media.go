@@ -5,34 +5,32 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"time"
 
+	"github.com/dhowden/tag"
 	"github.com/hajimehoshi/go-mp3"
-	"go.senan.xyz/taglib"
 )
 
 type Directory map[string][]string
 
 type Album struct {
-	name   string
-	artist string
-	date   string
-	length time.Duration // seconds
-	songs  []Song
+	artist   string
+	year     int
+	coverArt []byte
+	duration time.Duration // seconds
 }
 
 type Song struct {
-	trackNumber int
 	title       string
-	artists     []string
-	date        string
-	length      time.Duration // seconds
+	trackNumber int
+	duration    time.Duration // seconds
 	filePath    string
 }
 
 type Library struct {
-	albums []Album
+	// key = album name
+	albums map[string]Album
+	songs  map[string][]Song
 }
 
 var SupportedFileExtensions = []string{".mp3"}
@@ -67,13 +65,6 @@ func ReadFilesInDirectory(path string) (Directory, error) {
 	return directory, nil
 }
 
-func CombineLibraries(libA Library, libB Library) Library {
-	lib := Library{}
-	lib.albums = append(lib.albums, libA.albums...)
-	lib.albums = append(lib.albums, libB.albums...)
-	return lib
-}
-
 func GetAudioFileDuration(path string) (time.Duration, error) {
 	file, err := os.Open(path)
 	defer file.Close()
@@ -93,92 +84,65 @@ func GetAudioFileDuration(path string) (time.Duration, error) {
 	return duration, nil
 }
 
-func ReadDirectoryAudioTags(dir Directory) (Library, error) {
-	songsByAlbum := make(map[string][]Song)
-
+func IndexMediaDirectory(lib *Library, dir Directory) error {
 	for path, files := range dir {
 		for _, file := range files {
 			filePath := fmt.Sprintf("%s/%s", path, file)
 
-			tags, err := taglib.ReadTags(filePath)
+			f, err := os.Open(filePath)
 			if err != nil {
-				return Library{}, err
+				return err
 			}
+			defer f.Close()
 
-			// Get album
-			album := path
-			if len(tags[taglib.Album]) > 0 {
-				album = tags[taglib.Album][0]
-			}
-
-			// Get title
-			title := file
-			if len(tags[taglib.Title]) > 0 {
-				title = tags[taglib.Title][0]
-			}
-
-			// Get date
-			date := "n/a"
-			if len(tags[taglib.Date]) > 0 {
-				date = tags[taglib.Date][0]
-			}
-
-			// Get track number
-			tn, err := strconv.Atoi(tags[taglib.TrackNumber][0])
+			metaData, err := tag.ReadFrom(f)
 			if err != nil {
-				return Library{}, err
+				return err
 			}
 
-			// Get duration
+			// Check if albums has an entry for the album of the current song
+			// If not add it
+			if _, ok := lib.albums[metaData.Album()]; !ok {
+				lib.albums[metaData.Album()] = Album{
+					artist:   metaData.Artist(),
+					year:     metaData.Year(),
+					coverArt: slices.Clone(metaData.Picture().Data),
+				}
+			}
+
 			duration, err := GetAudioFileDuration(filePath)
 			if err != nil {
-				return Library{}, err
+				return err
 			}
+			album := lib.albums[metaData.Album()]
+			album.duration += duration
+			lib.albums[metaData.Album()] = album
 
-			songsByAlbum[album] = append(songsByAlbum[tags[taglib.Album][0]], Song{
-				trackNumber: tn,
-				title:       title,
-				artists:     tags[taglib.Artist],
-				date:        date,
-				length:      duration,
+			trackNumber, _ := metaData.Track()
+
+			lib.songs[metaData.Album()] = append(lib.songs[metaData.Album()], Song{
+				title:       metaData.Title(),
+				trackNumber: trackNumber,
+				duration:    duration,
 				filePath:    filePath,
 			})
 		}
 	}
 
-	lib := Library{}
-
-	for albumName, songs := range songsByAlbum {
+	// Sort Songs by track number
+	for _, songs := range lib.songs {
 		slices.SortFunc(songs, func(a Song, b Song) int {
 			return a.trackNumber - b.trackNumber
 		})
-
-		var totalLength time.Duration
-		for _, song := range songs {
-			totalLength += song.length
-		}
-
-		artist := "unknown"
-		if len(songs[0].artists) > 0 {
-			artist = songs[0].artists[0]
-		}
-
-		album := Album{
-			name:   albumName,
-			artist: artist,
-			date:   songs[0].date,
-			length: totalLength,
-			songs:  slices.Clone(songs),
-		}
-
-		lib.albums = append(lib.albums, album)
 	}
 
-	return lib, nil
+	return nil
 }
 
 func GetLibraryFromMediaDirectories(dirs []string) (Library, error) {
 	library := Library{}
+	library.albums = make(map[string]Album)
+	library.songs = make(map[string][]Song)
 
 	// Read Media Directories
 	for _, path := range dirs {
@@ -187,13 +151,10 @@ func GetLibraryFromMediaDirectories(dirs []string) (Library, error) {
 			return Library{}, err
 		}
 
-		var lib Library
-		lib, err = ReadDirectoryAudioTags(dir)
+		err = IndexMediaDirectory(&library, dir)
 		if err != nil {
 			return Library{}, err
 		}
-
-		library = CombineLibraries(library, lib)
 	}
 
 	return library, nil

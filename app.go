@@ -29,7 +29,13 @@ type App struct {
 	listWidget widget.List
 }
 
-var listEntries []string
+type AlbumIco struct {
+	button widget.Clickable
+	icon   *widget.Icon
+	info   string
+}
+
+var listEntries []AlbumIco
 
 func InitApp() (App, error) {
 	a := App{
@@ -49,13 +55,18 @@ func InitApp() (App, error) {
 		return a, err
 	}
 
-	listEntries = make([]string, 0, 128)
+	listEntries = make([]AlbumIco, 0, 128)
 
-	for _, album := range a.library.albums {
-		listEntries = append(listEntries, fmt.Sprintf("%s - %s - %s", album.name, album.artist, album.date))
-		for _, song := range album.songs {
-			listEntries = append(listEntries, fmt.Sprintf("    %d - %s - %s", song.trackNumber, song.title, song.length.String()))
+	for albumName, albumData := range a.library.albums {
+		ico, err := widget.NewIcon(albumData.coverArt)
+		if err != nil {
+			return App{}, err
 		}
+
+		listEntries = append(listEntries, AlbumIco{
+			icon: ico,
+			info: fmt.Sprintf("%s - %s - %d [%s]", albumName, albumData.artist, albumData.year, albumData.duration.String()),
+		})
 	}
 
 	// init widgets
@@ -79,8 +90,16 @@ func (a *App) Draw(gtx C) {
 			list := material.List(a.theme, &a.listWidget)
 
 			return list.Layout(gtx, len(listEntries), func(gtx layout.Context, index int) layout.Dimensions {
-				lbl := material.Label(a.theme, unit.Sp(18), listEntries[index])
-				return lbl.Layout(gtx)
+				return SplitWidget{}.Layout(gtx, 64,
+					func(gtx C) D {
+						ico := material.IconButton(a.theme, &listEntries[index].button, listEntries[index].icon, "Album Cover")
+						return ico.Layout(gtx)
+					},
+					func(gtx C) D {
+						lbl := material.Label(a.theme, unit.Sp(18), listEntries[index].info)
+						return lbl.Layout(gtx)
+					},
+				)
 			})
 		}))
 }

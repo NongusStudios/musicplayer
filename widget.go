@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 
+	"gioui.org/f32"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -55,4 +56,12 @@ func FillWithLabel(gtx C, th *material.Theme, text string, backgroundColor color
 	ColorBox(gtx, gtx.Constraints.Max, backgroundColor)
 	lbl := material.H3(th, text)
 	return layout.Center.Layout(gtx, lbl.Layout)
+}
+
+func DrawImage(ops *op.Ops, img image.Image) {
+	imageOp := paint.NewImageOp(img)
+	imageOp.Filter = paint.FilterNearest
+	imageOp.Add(ops)
+	op.Affine(f32.Affine2D{}.Scale(f32.Pt(0, 0), f32.Pt(4, 4))).Add(ops)
+	paint.PaintOp{}.Add(ops)
 }
