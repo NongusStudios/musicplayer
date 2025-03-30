@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -19,23 +21,35 @@ type Settings struct {
 	mediaDirectories []string
 }
 
+type ListEntryType = int
+
+const (
+	ListEntryTypeAlbum ListEntryType = iota
+	ListEntryTypeSong
+)
+
+type ListEntryData struct {
+	typ         ListEntryType
+	albumName   string
+	trackNumber int
+
+	// Potential Widgets
+	clickable *widget.Clickable
+}
+
 type App struct {
 	theme    *material.Theme
 	ops      op.Ops
 	settings Settings
-	library  Library
+	player   Player
 
 	// Widgets
-	listWidget widget.List
-}
+	listWidget      widget.List
+	listEntriesData []ListEntryData
+	listEntries     []layout.Widget
 
-type AlbumIco struct {
-	button widget.Clickable
-	icon   *widget.Icon
-	info   string
+	playButton widget.Clickable
 }
-
-var listEntries []AlbumIco
 
 func InitApp() (App, error) {
 	a := App{
@@ -49,36 +63,89 @@ func InitApp() (App, error) {
 	}
 
 	// Read media directories
-	var err error
-	a.library, err = GetLibraryFromMediaDirectories(a.settings.mediaDirectories)
+	library, err := GetLibraryFromMediaDirectories(a.settings.mediaDirectories)
 	if err != nil {
 		return a, err
 	}
 
-	listEntries = make([]AlbumIco, 0, 128)
-
-	for albumName, albumData := range a.library.albums {
-		ico, err := widget.NewIcon(albumData.coverArt)
-		if err != nil {
-			return App{}, err
-		}
-
-		listEntries = append(listEntries, AlbumIco{
-			icon: ico,
-			info: fmt.Sprintf("%s - %s - %d [%s]", albumName, albumData.artist, albumData.year, albumData.duration.String()),
-		})
-	}
-
-	// init widgets
-	a.listWidget.List = layout.List{
-		Axis: layout.Vertical,
+	// init player
+	a.player, err = InitPlayer(library)
+	if err != nil {
+		return a, err
 	}
 
 	return a, nil
 }
 
-func (a *App) Update(gtx C) {
+func (a *App) SetupWidgets() error {
+	// init widgets
+	a.listWidget.List = layout.List{
+		Axis: layout.Vertical,
+	}
 
+	// Add list entries
+	a.listEntries = make([]layout.Widget, 0, 128)
+	a.listEntriesData = make([]ListEntryData, 0, 128)
+
+	for albumName, albumData := range a.player.Lib.Albums {
+		a.listEntriesData = append(a.listEntriesData, ListEntryData{
+			typ: ListEntryTypeAlbum,
+		})
+		a.listEntries = append(a.listEntries, func(gtx C) D {
+			lbl := material.Label(a.theme, unit.Sp(24),
+				fmt.Sprintf("%s - %s - %d [%s]", albumName, albumData.artist, albumData.year, albumData.duration.String()))
+			return lbl.Layout(gtx)
+		})
+
+		for i, song := range a.player.Lib.Songs[albumName] {
+			a.listEntriesData = append(a.listEntriesData, ListEntryData{
+				typ:         ListEntryTypeSong,
+				albumName:   albumName,
+				trackNumber: i,
+				clickable:   new(widget.Clickable),
+			})
+
+			listEntryData := &a.listEntriesData[len(a.listEntriesData)-1]
+			a.listEntries = append(a.listEntries, func(gtx C) D {
+				return layout.Inset{Left: unit.Dp(25)}.Layout(gtx, func(gtx C) D {
+					return SplitWidget{Ratios: []float32{0.1, 0.1, 0.8}}.Layout(gtx, 18,
+						func(gtx C) D {
+							btn := material.Button(a.theme, listEntryData.clickable, "Play")
+							return btn.Layout(gtx)
+						},
+						layout.Spacer{}.Layout,
+						func(gtx C) D {
+							lbl := material.Label(a.theme, unit.Sp(16),
+								fmt.Sprintf("%s - %s", song.Title, song.Duration.String()))
+							return lbl.Layout(gtx)
+						},
+					)
+				})
+			})
+		}
+	}
+
+	return nil
+}
+
+func (a *App) Update(gtx C) {
+	if a.playButton.Clicked(gtx) {
+		a.player.TogglePlayBack()
+	}
+
+	for _, listEntryData := range a.listEntriesData {
+		if listEntryData.typ == ListEntryTypeSong && listEntryData.clickable.Clicked(gtx) {
+			if listEntryData.albumName == a.player.CurrentAlbum && listEntryData.trackNumber == a.player.CurrentTrack {
+				a.player.Pause()
+				continue
+			}
+			a.player.PlaySong(listEntryData.albumName, listEntryData.trackNumber)
+		}
+	}
+}
+
+func (a *App) EachFrame() {
+	a.player.Update()
 }
 
 func (a *App) Draw(gtx C) {
@@ -87,19 +154,34 @@ func (a *App) Draw(gtx C) {
 		Spacing: layout.SpaceEnd,
 	}.Layout(gtx,
 		layout.Rigid(func(gtx C) D {
+			return layout.Inset{Left: unit.Dp(16), Right: unit.Dp(16), Top: unit.Dp(16), Bottom: unit.Dp(16)}.Layout(gtx, func(gtx C) D {
+				return SplitWidget{Ratios: []float32{0.1, 0.01, 0.9}}.Layout(gtx, 24,
+					func(gtx C) D {
+						txt := "Play"
+						if a.player.IsPlaying() {
+							txt = "Pause"
+						}
+
+						btn := material.Button(a.theme, &a.playButton, txt)
+						return btn.Layout(gtx)
+					},
+					layout.Spacer{}.Layout,
+					func(gtx C) D {
+						slider := material.Slider(a.theme, a.player.CurrentSongProgress)
+						return slider.Layout(gtx)
+					})
+			})
+		}),
+		layout.Rigid(func(gtx C) D {
+			return ColorBox(gtx, image.Pt(gtx.Constraints.Max.X, 1), color.NRGBA{R: 0, G: 0, B: 0, A: 255})
+		}),
+		layout.Rigid(layout.Spacer{Height: 11}.Layout),
+		layout.Rigid(func(gtx C) D {
 			list := material.List(a.theme, &a.listWidget)
 
-			return list.Layout(gtx, len(listEntries), func(gtx layout.Context, index int) layout.Dimensions {
-				return SplitWidget{}.Layout(gtx, 64,
-					func(gtx C) D {
-						ico := material.IconButton(a.theme, &listEntries[index].button, listEntries[index].icon, "Album Cover")
-						return ico.Layout(gtx)
-					},
-					func(gtx C) D {
-						lbl := material.Label(a.theme, unit.Sp(18), listEntries[index].info)
-						return lbl.Layout(gtx)
-					},
-				)
+			return list.Layout(gtx, len(a.listEntries), func(gtx C, index int) D {
+				return a.listEntries[index](gtx)
 			})
-		}))
+		}),
+	)
 }

@@ -21,6 +21,8 @@ func main() {
 
 func run(win *app.Window) error {
 	a, err := InitApp()
+	a.SetupWidgets()
+
 	if err != nil {
 		return err
 	}
@@ -33,7 +35,7 @@ func run(win *app.Window) error {
 			gtx := app.NewContext(&a.ops, e)
 			a.Update(gtx)
 			a.Draw(gtx)
-			e.Frame(&a.ops)
+			e.Frame(gtx.Ops)
 		}
 	}
 }

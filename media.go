@@ -21,16 +21,16 @@ type Album struct {
 }
 
 type Song struct {
-	title       string
-	trackNumber int
-	duration    time.Duration // seconds
-	filePath    string
+	Title       string
+	TrackNumber int
+	Duration    time.Duration // seconds
+	FilePath    string
 }
 
 type Library struct {
 	// key = album name
-	albums map[string]Album
-	songs  map[string][]Song
+	Albums map[string]Album
+	Songs  map[string][]Song
 }
 
 var SupportedFileExtensions = []string{".mp3"}
@@ -102,8 +102,8 @@ func IndexMediaDirectory(lib *Library, dir Directory) error {
 
 			// Check if albums has an entry for the album of the current song
 			// If not add it
-			if _, ok := lib.albums[metaData.Album()]; !ok {
-				lib.albums[metaData.Album()] = Album{
+			if _, ok := lib.Albums[metaData.Album()]; !ok {
+				lib.Albums[metaData.Album()] = Album{
 					artist:   metaData.Artist(),
 					year:     metaData.Year(),
 					coverArt: slices.Clone(metaData.Picture().Data),
@@ -114,25 +114,25 @@ func IndexMediaDirectory(lib *Library, dir Directory) error {
 			if err != nil {
 				return err
 			}
-			album := lib.albums[metaData.Album()]
+			album := lib.Albums[metaData.Album()]
 			album.duration += duration
-			lib.albums[metaData.Album()] = album
+			lib.Albums[metaData.Album()] = album
 
 			trackNumber, _ := metaData.Track()
 
-			lib.songs[metaData.Album()] = append(lib.songs[metaData.Album()], Song{
-				title:       metaData.Title(),
-				trackNumber: trackNumber,
-				duration:    duration,
-				filePath:    filePath,
+			lib.Songs[metaData.Album()] = append(lib.Songs[metaData.Album()], Song{
+				Title:       metaData.Title(),
+				TrackNumber: trackNumber,
+				Duration:    duration,
+				FilePath:    filePath,
 			})
 		}
 	}
 
 	// Sort Songs by track number
-	for _, songs := range lib.songs {
+	for _, songs := range lib.Songs {
 		slices.SortFunc(songs, func(a Song, b Song) int {
-			return a.trackNumber - b.trackNumber
+			return a.TrackNumber - b.TrackNumber
 		})
 	}
 
@@ -141,8 +141,8 @@ func IndexMediaDirectory(lib *Library, dir Directory) error {
 
 func GetLibraryFromMediaDirectories(dirs []string) (Library, error) {
 	library := Library{}
-	library.albums = make(map[string]Album)
-	library.songs = make(map[string][]Song)
+	library.Albums = make(map[string]Album)
+	library.Songs = make(map[string][]Song)
 
 	// Read Media Directories
 	for _, path := range dirs {
